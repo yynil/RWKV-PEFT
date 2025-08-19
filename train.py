@@ -179,11 +179,11 @@ if __name__ == "__main__":
     os.environ["RWKV_CTXLEN"] = str(args.ctx_len)
     os.environ["RWKV_HEAD_SIZE_A"] = str(args.head_size_a)
     ######state tuning
-    os.environ["RWKV_TRAIN_TYPE"]=''
-    if args.train_type=='state':
-        os.environ["RWKV_TRAIN_TYPE"]='state'
-    elif args.train_type=='infctx':
-        os.environ["RWKV_TRAIN_TYPE"]='infctx'
+    os.environ["RWKV_TRAIN_TYPE"] = args.train_type
+    # if args.train_type=='state':
+    #     os.environ["RWKV_TRAIN_TYPE"]='state'
+    # elif args.train_type=='infctx':
+    #     os.environ["RWKV_TRAIN_TYPE"]='infctx'
 
     print(f"########## WKV OP           {args.op}               ##########\n" * 3)
     print(f"########## FUSED OP    {args.fused_kernel}          ##########\n" * 3)
@@ -200,80 +200,13 @@ if __name__ == "__main__":
     if not os.path.exists(args.proj_dir):
         os.makedirs(args.proj_dir)
 
-    if args.my_pile_stage > 0:
-        magic_prime_bak = args.magic_prime
-
-        if args.my_pile_shift < 0:
-            args.my_pile_shift = 0
-
-        if magic_prime_bak > 0:
-            args.magic_prime = magic_prime_bak
-        if args.my_qa_mask == 2:
-            args.epoch_count = 2 * args.magic_prime // 40320
-        else:
-            args.epoch_count = args.magic_prime // 40320
-
-        args.epoch_steps = 40320 // args.real_bsz
-        assert args.epoch_steps * args.real_bsz == 40320
-        # if args.my_pile_stage == 2:
-        #     assert args.lr_final == args.lr_init
-        if args.my_pile_stage >= 2:  # find latest saved model
-            list_p = []
-            for p in os.listdir(args.proj_dir):
-                if p.startswith("rwkv") and p.endswith(".pth"):
-                    p = ((p.split("-"))[1].split("."))[0]
-                    if p != "final":
-                        if p == "init":
-                            p = -1
-                        else:
-                            p = int(p)
-                        list_p += [p]
-            list_p.sort()
-            max_p = list_p[-1]
-            if len(list_p) > 1:
-                args.my_pile_prev_p = list_p[-2]  # in case max_p is corrupted
-            if max_p == -1:
-                args.load_model = f"{args.proj_dir}/rwkv-init.pth"
-            else:
-                args.load_model = f"{args.proj_dir}/rwkv-{max_p}.pth"
-                if args.warmup_steps < 0:
-                    if args.my_pile_stage == 2:
-                        args.warmup_steps = 10
-                    else:
-                        args.warmup_steps = 30
-            args.epoch_begin = max_p + 1
-
-    samples_per_epoch = args.epoch_steps * args.real_bsz
-    tokens_per_epoch = samples_per_epoch * args.ctx_len
+    
     try:
         deepspeed_version = deepspeed.__version__
     except:
         deepspeed_version = None
         pass
-#     rank_zero_info(
-#         f"""
-# ############################################################################
-# #
-# # RWKV-5 {args.precision.upper()} on {args.num_nodes}x{args.devices} {args.accelerator.upper()}, bsz {args.num_nodes}x{args.devices}x{args.micro_bsz}={args.real_bsz}, {args.strategy} {'with grad_cp' if args.grad_cp > 0 else ''}
-# #
-# # Data = {args.data_file} ({args.data_type}), ProjDir = {args.proj_dir}
-# #
-# # Epoch = {args.epoch_begin} to {args.epoch_begin + args.epoch_count - 1} (will continue afterwards), save every {args.epoch_save} epoch
-# #
-# # Each "epoch" = {args.epoch_steps} steps, {samples_per_epoch} samples, {tokens_per_epoch} tokens
-# #
-# # Model = {args.n_layer} n_layer, {args.n_embd} n_embd, {args.ctx_len} ctx_len
-# #
-# # Adam = lr {args.lr_init} to {args.lr_final}, warmup {args.warmup_steps} steps, beta {args.betas}, eps {args.adam_eps}
-# #
-# # Found torch {torch.__version__}, recommend 2.4.0 or newer if you use fla
-# # Found deepspeed {deepspeed_version}, recommend 0.7.0 (faster than newer versions)
-# # Found pytorch_lightning {pl.__version__}, recommend 2.4.0 or newer
-# #
-# ############################################################################
-# """
-#     )
-    # rank_zero_info(str(vars(args)) + "\n")
+
 
     assert args.data_type in ["utf-8", "utf-16le", "numpy", "binidx", "dummy", "uint16", "sft", 'jsonl']
 

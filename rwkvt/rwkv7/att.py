@@ -22,6 +22,8 @@ def RWKV_Tmix_v7(*args, **kwargs):
         return RWKV_Tmix_x070_State(*args, **kwargs)
     elif os.environ["RWKV_TRAIN_TYPE"] == 'infctx':
         return RWKV_Tmix_x070_infctx(*args, **kwargs)
+    elif os.environ["RWKV_TRAIN_TYPE"] == 'fullstate':
+        return RWKV_Tmix_x070_FullState(*args, **kwargs)
     else:
         return RWKV_Tmix_x070(*args, **kwargs)
     
@@ -179,11 +181,6 @@ class RWKV_Tmix_x070_State(RWKV_Tmix_x070):
             #for State-tuning
             self.time_state = nn.Parameter(torch.zeros(self.n_head, self.head_size, self.head_size))
 
-            # !!! initialize if you are using RWKV_Tmix_x070 in your code !!!
-            # self.receptance.weight.data.uniform_(-0.5/(C**0.5), 0.5/(C**0.5))
-            # self.key.weight.data.uniform_(-0.05/(C**0.5), 0.05/(C**0.5))
-            # self.value.weight.data.uniform_(-0.5/(C**0.5), 0.5/(C**0.5))
-            # self.output.weight.data.zero_()
 
     @torch.compile
     def forward(self, x, v_first, attention_mask=None):
@@ -265,3 +262,46 @@ class RWKV_Tmix_x070_infctx(RWKV_Tmix_x070):
         x = self.output(x * g)
         
         return x, v_first, TimeMixState(shift_state,wkv_state)
+    
+
+class RWKV_Tmix_x070_FullState(RWKV_Tmix_x070):
+    def __init__(self, args, layer_id):
+        super().__init__(args, layer_id)
+        with torch.no_grad():
+            #for State-tuning
+            self.time_state = nn.Parameter(torch.zeros(self.n_head, self.head_size, self.head_size))
+            self.ts_state = nn.Parameter(torch.zeros(args.n_embd))
+
+
+    # @torch.compile
+    def forward(self, x, v_first, attention_mask=None):
+        B, T, C = x.size()
+        H = self.n_head
+
+        if attention_mask is not None:
+            x = x.mul(attention_mask[:, -x.shape[-2]:, None])
+        xx = self.time_shift(x) - x
+        xx[:,0,:] += self.ts_state
+        xr, xw, xk, xv, xa, xg = self.addcmul_kernel(x, xx)
+
+        r = self.receptance(xr)
+        w = -F.softplus(-(self.w0 + torch.tanh(xw @ self.w1) @ self.w2)) - 0.5 # soft-clamp to (-inf, -0.5)
+        k = self.key(xk)
+        v = self.value(xv)
+        if self.layer_id == 0:
+            v_first = v # store the v of the first layer
+        else:
+            v = v + (v_first - v) * torch.sigmoid(self.v0 + (xv @ self.v1) @ self.v2) # add value residual
+        a = torch.sigmoid(self.a0 + (xa @ self.a1) @ self.a2) # a is "in-context learning rate"
+        g = torch.sigmoid(xg @ self.g1) @ self.g2
+
+        kk = k * self.k_k
+        kk = F.normalize(kk.view(B,T,H,-1), dim=-1, p=2.0).view(B,T,C)
+        k = k * (1 + (a-1) * self.k_a)
+
+        x , _ = RUN_RWKV7_STATE(r,k,v,w,-kk, kk*a,self.time_state)
+        x = self.ln_x(x.view(B * T, C)).view(B, T, C)
+
+        x = x + ((r.view(B,T,H,-1)*k.view(B,T,H,-1)*self.r_k).sum(dim=-1, keepdim=True) * v.view(B,T,H,-1)).view(B,T,C)
+        x = self.output(x * g)
+        return x, v_first

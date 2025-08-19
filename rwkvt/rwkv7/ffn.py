@@ -13,6 +13,8 @@ def RWKV_Cmix_v7(*args, **kwargs):
     
     if os.environ["RWKV_TRAIN_TYPE"] == 'infctx':
         return RWKV_CMix_x070_infctx(*args, **kwargs)
+    elif os.environ["RWKV_TRAIN_TYPE"] == 'fullstate':
+        return RWKV_CMix_x070_FullState(*args, **kwargs)
     elif os.environ["FUSED_KERNEL"] == '1':
         return RWKV_CMix_x070_fla(*args, **kwargs)
     else:
@@ -24,7 +26,6 @@ class RWKV_CMix_x070(nn.Module):
         self.args = args
         self.layer_id = layer_id
         self.time_shift = nn.ZeroPad2d((0, 0, 1, -1))
-
         with torch.no_grad():
             ratio_1_to_almost0 = 1.0 - (layer_id / args.n_layer)  # 1 to ~0
             ddd = torch.ones(1, 1, args.n_embd)
@@ -76,3 +77,25 @@ class RWKV_CMix_x070_infctx(RWKV_CMix_x070):
         k = torch.relu(self.key(k)) ** 2
 
         return self.value(k),ChannelMixState(x[:, -1])
+    
+
+class RWKV_CMix_x070_FullState(RWKV_CMix_x070):
+    def __init__(self, args, layer_id):
+        super().__init__(args, layer_id)
+        self.args = args
+        self.layer_id = layer_id
+        self.dim = args.n_embd
+        self.time_shift = nn.ZeroPad2d((0, 0, 1, -1))
+
+        self.ts_state = nn.Parameter(torch.zeros(self.dim))
+    def forward(self, x, attention_mask=None):
+        if attention_mask is not None:
+            x = x.mul(attention_mask[:, -x.shape[-2]:, None])
+        
+        xx = self.time_shift(x) - x
+
+        xx[:,0,:] += self.ts_state
+        k = x + xx * self.x_k
+        k = torch.relu(self.key(k)) ** 2
+
+        return self.value(k)
