@@ -230,7 +230,7 @@ class RWKV(pl.LightningModule):
     else:
         def training_step(self, batch, batch_idx):
             args = self.args
-            if args.data_type=='sft':
+            if args.data_type=='sft' or args.data_type=="jsonl_dir":
                 idx, targets, mask = batch
                 logits = self(idx, mask)            
                 

@@ -152,15 +152,18 @@ class train_callback(pl.Callback):
 
     def on_train_epoch_start(self, trainer, pl_module):
         args = self.args
-        if pl.__version__[0]=='2':
-            dataset = trainer.train_dataloader.dataset
+        if args.data_type == "jsonl_dir":
+            return
         else:
-            dataset = trainer.train_dataloader.dataset.datasets
-        assert "MyDataset" in str(dataset)
-        dataset.global_rank = trainer.global_rank
-        dataset.real_epoch = int(args.epoch_begin + trainer.current_epoch)
-        dataset.world_size = trainer.world_size
-        # print(f'########## world_size {dataset.world_size} global_rank {dataset.global_rank} real_epoch {dataset.real_epoch} ##########')
+            if pl.__version__[0]=='2':
+                dataset = trainer.train_dataloader.dataset
+            else:
+                dataset = trainer.train_dataloader.dataset.datasets
+            assert "MyDataset" in str(dataset)
+            dataset.global_rank = trainer.global_rank
+            dataset.real_epoch = int(args.epoch_begin + trainer.current_epoch)
+            dataset.world_size = trainer.world_size
+            # print(f'########## world_size {dataset.world_size} global_rank {dataset.global_rank} real_epoch {dataset.real_epoch} ##########')
 
     def on_train_epoch_end(self, trainer, pl_module):
         args = self.args

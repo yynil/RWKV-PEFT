@@ -26,9 +26,9 @@ if __name__ == "__main__":
     parser.add_argument("--random_seed", default="-1", type=int)
 
     parser.add_argument("--data_file", default="", type=str)
-    parser.add_argument("--data_type", default="utf-8", type=str) #binidx / sft
+    parser.add_argument("--data_type", default="utf-8", type=str) #binidx / sft / jsonl/ jsonl_dir
     parser.add_argument("--vocab_size", default=0, type=int)  # vocab_size = 0 means auto (for char-level LM and .txt data)
-
+    parser.add_argument("--tokenizer_dir", default="", type=str)
     parser.add_argument("--ctx_len", default=1024, type=int)
     parser.add_argument("--epoch_steps", default=1000, type=int)  # a mini "epoch" has [epoch_steps] steps
     parser.add_argument("--epoch_count", default=500, type=int)  # train for this many "epochs". will continue afterwards with lr = lr_final
@@ -129,7 +129,6 @@ if __name__ == "__main__":
 
     parser.add_argument("--lr_schedule", default="cos", type=str)        #['cos', 'wsd']
 
-
     if pl.__version__[0]=='2':
         parser.add_argument("--accelerator", default="gpu", type=str)
         parser.add_argument("--strategy", default="auto", type=str)
@@ -208,7 +207,7 @@ if __name__ == "__main__":
         pass
 
 
-    assert args.data_type in ["utf-8", "utf-16le", "numpy", "binidx", "dummy", "uint16", "sft", 'jsonl']
+    assert args.data_type in ["utf-8", "utf-16le", "numpy", "binidx", "dummy", "uint16", "sft", 'jsonl','jsonl_dir']
 
     if args.lr_final == 0 or args.lr_init == 0:
         rank_zero_info("\n\nNote: lr_final = 0 or lr_init = 0. Using linear LR schedule instead.\n\n")
@@ -259,8 +258,15 @@ if __name__ == "__main__":
             callbacks=[train_callback(args)],
         )
 
- 
-    train_data = get_data_by_l_version(trainer=trainer, args=args)
+    if args.data_type == "jsonl_dir":
+        from data.data_utils import data_collator,tokenize_fn,load_dataset
+        from functools import partial
+        from torch.utils.data import DataLoader
+        train_data = load_dataset(args.data_file)
+        train_data = train_data.map(partial(tokenize_fn,tokenizer_dir=args.tokenizer_dir,eos_id=0,pad_id=0),batched=True,remove_columns=train_data.column_names)
+        train_data = DataLoader(train_data,batch_size=args.micro_bsz,collate_fn=partial(data_collator,pad_id=0))
+    else:
+        train_data = get_data_by_l_version(trainer=trainer, args=args)
 
     trainer.fit(model, train_data)
 
