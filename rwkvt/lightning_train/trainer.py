@@ -20,6 +20,67 @@ def my_save(args, trainer, dd, ff):
         subprocess.Popen(f" aws s3 mv {fff} s3://rwkv-world/{aa}-{fn} --quiet", shell=True)
     else:
         torch.save(dd, ff)
+
+
+def save_ckpt(args, trainer, pl_module, step_suffix=""):
+    """保存检查点函数
+    
+    Args:
+        args: 训练参数
+        trainer: PyTorch Lightning trainer
+        pl_module: PyTorch Lightning module
+        step_suffix: 可选的步骤后缀，用于在epoch中间保存时区分
+    """
+    to_save_dict = {}
+    
+    if args.data_type == 'wds_img':
+        raw_dict = pl_module.state_dict()
+        for k in raw_dict:
+            if k.startswith('encoder.') or k.startswith('decoder.'):
+                to_save_dict[k] = raw_dict[k]
+    else:
+        # to_save_dict = pl_module.state_dict()
+        to_save_dict = {k.replace("model.", ""): v for k, v in pl_module.state_dict().items()}
+
+    if args.train_type=='state':
+        peft_dict = {}
+        for name, state in to_save_dict.items():
+            if 'state' in name:
+                peft_dict[name] = state
+        to_save_dict = peft_dict
+
+    if args.peft!='none':
+        peft_dict = {}
+        for name, state in to_save_dict.items():
+            if len(args.load_model) == 0:
+                if 'emb' in name or 'head' in name or 'ln' in name:
+                    peft_dict[name] = state
+            for part in args.train_parts:
+                if part in name:
+                    peft_dict[name] = state
+            if args.peft=='pissa' and ('lora' in name):
+                peft_dict[name] = state
+            elif args.peft in name:
+                peft_dict[name] = state
+
+        to_save_dict = peft_dict
+
+    # 构建文件名，包含epoch和steps信息
+    epoch = args.epoch_begin + trainer.current_epoch
+    steps = trainer.global_step
+    filename = f"rwkv-{epoch}-step{steps}"
+    if step_suffix:
+        filename += f"-{step_suffix}"
+    filename += ".pth"
+
+    try:
+        my_save(
+            args, trainer,
+            to_save_dict,
+            f"{args.proj_dir}/{filename}",
+        )
+    except Exception as e:
+        print('Error\n\n', e, '\n\n')
         
 
 
@@ -148,6 +209,12 @@ class train_callback(pl.Callback):
                         lll["kt/s"] = kt_s
                     trainer.my_wandb.log(lll, step=int(real_step))
                 self.write_data(trainer.my_loss, t_cost, kt_s)
+            
+            # 根据save_per_steps进行中间保存
+            if hasattr(args, 'save_per_steps') and args.save_per_steps > 0:
+                if trainer.global_step > 0 and trainer.global_step % args.save_per_steps == 0:
+                    if (trainer.is_global_zero) or ('deepspeed_stage_3' in args.strategy):
+                        save_ckpt(args, trainer, pl_module, "step")
                 
 
     def on_train_epoch_start(self, trainer, pl_module):
@@ -167,49 +234,9 @@ class train_callback(pl.Callback):
 
     def on_train_epoch_end(self, trainer, pl_module):
         args = self.args
-        to_save_dict = {}
         if (trainer.is_global_zero) or ('deepspeed_stage_3' in args.strategy):  # save pth
             if (args.epoch_save > 0 and trainer.current_epoch % args.epoch_save == 0) or (trainer.current_epoch == args.epoch_count - 1):
-                if args.data_type == 'wds_img':
-                    raw_dict = pl_module.state_dict()
-                    for k in raw_dict:
-                        if k.startswith('encoder.') or k.startswith('decoder.'):
-                            to_save_dict[k] = raw_dict[k]
-                else:
-                    # to_save_dict = pl_module.state_dict()
-                    to_save_dict = {k.replace("model.", ""): v for k, v in pl_module.state_dict().items()}
-
-                if args.train_type=='state':
-                    peft_dict = {}
-                    for name, state in to_save_dict.items():
-                        if 'state' in name:
-                            peft_dict[name] = state
-                    to_save_dict = peft_dict
-
-                if args.peft!='none':
-                    peft_dict = {}
-                    for name, state in to_save_dict.items():
-                        if len(args.load_model) == 0:
-                            if 'emb' in name or 'head' in name or 'ln' in name:
-                                peft_dict[name] = state
-                        for part in args.train_parts:
-                            if part in name:
-                                peft_dict[name] = state
-                        if args.peft=='pissa' and ('lora' in name):
-                            peft_dict[name] = state
-                        elif args.peft in name:
-                            peft_dict[name] = state
-
-                    to_save_dict = peft_dict
-
-                try:
-                    my_save(
-                        args, trainer,
-                        to_save_dict,
-                        f"{args.proj_dir}/rwkv-{args.epoch_begin + trainer.current_epoch}.pth",
-                    )
-                except Exception as e:
-                    print('Error\n\n', e, '\n\n')
+                save_ckpt(args, trainer, pl_module)
 
         if trainer.is_global_zero:  # logging
             trainer.my_log.write(f"{args.epoch_begin + trainer.current_epoch} {trainer.my_epoch_loss:.6f} {math.exp(trainer.my_epoch_loss):.4f} {trainer.my_lr:.8f} {datetime.datetime.now()} {trainer.current_epoch}\n")

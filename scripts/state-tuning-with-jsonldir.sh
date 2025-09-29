@@ -7,10 +7,11 @@ tokenizer_dir='/home/zebraclips/yynil/models/rwkv7-1.5B-g1a'
 n_layer=24
 n_embd=2048
 
-micro_bsz=2
+micro_bsz=4
 epoch_save=1
-epoch_steps=800
-ctx_len=512
+epoch_steps=1000
+ctx_len=4096
+save_per_steps=1000
 
 
 python train.py --load_model $load_model \
@@ -23,4 +24,4 @@ python train.py --load_model $load_model \
 --lr_init 1 --lr_final 1e-2 --warmup_steps 0 --beta1 0.9 --beta2 0.99 --adam_eps 1e-8 \
 --accelerator gpu --devices 1 --precision bf16 --strategy deepspeed_stage_2_offload --grad_cp 1 \
 --my_testing "x070" \
---train_type "state"  --dataload pad --op fla --tokenizer_dir $tokenizer_dir 
+--train_type "state"  --dataload pad --op fla --tokenizer_dir $tokenizer_dir --fused_kernel --save_per_steps $save_per_steps

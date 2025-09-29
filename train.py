@@ -128,6 +128,7 @@ if __name__ == "__main__":
     parser.add_argument("--fused_kernel", action='store_true', help="Enable rwkv-fla fused kernel")
 
     parser.add_argument("--lr_schedule", default="cos", type=str)        #['cos', 'wsd']
+    parser.add_argument("--save_per_steps", default=10000, type=int)
 
     if pl.__version__[0]=='2':
         parser.add_argument("--accelerator", default="gpu", type=str)
@@ -247,10 +248,11 @@ if __name__ == "__main__":
 
     args, model = load_peft_model(args)
 
+    max_steps = args.max_epochs * args.epoch_steps
 
     if pl.__version__[0]=='2':
         trainer = Trainer(accelerator=args.accelerator,strategy=args.strategy,devices=args.devices,num_nodes=args.num_nodes,precision=args.precision,
-        logger=args.logger,callbacks=[train_callback(args)],max_epochs=args.max_epochs,check_val_every_n_epoch=args.check_val_every_n_epoch,num_sanity_val_steps=args.num_sanity_val_steps,
+        logger=args.logger,callbacks=[train_callback(args)],max_steps=max_steps,max_epochs=args.max_epochs,check_val_every_n_epoch=args.check_val_every_n_epoch,num_sanity_val_steps=args.num_sanity_val_steps,
         log_every_n_steps=args.log_every_n_steps,enable_checkpointing=args.enable_checkpointing,accumulate_grad_batches=args.accumulate_grad_batches,gradient_clip_val=args.gradient_clip_val)
     else:
         trainer = Trainer.from_argparse_args(
@@ -263,7 +265,7 @@ if __name__ == "__main__":
         from functools import partial
         from torch.utils.data import DataLoader
         train_data = load_dataset(args.data_file)
-        train_data = train_data.map(partial(tokenize_fn,tokenizer_dir=args.tokenizer_dir,eos_id=0,pad_id=0),batched=True,remove_columns=train_data.column_names)
+        train_data = train_data.map(partial(tokenize_fn,tokenizer_dir=args.tokenizer_dir,eos_id=0,pad_id=0),batched=True,remove_columns=train_data.column_names,num_proc=8)
         train_data = DataLoader(train_data,batch_size=args.micro_bsz,collate_fn=partial(data_collator,pad_id=0))
     else:
         train_data = get_data_by_l_version(trainer=trainer, args=args)
