@@ -159,7 +159,7 @@ class train_callback(pl.Callback):
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         args = self.args
-        token_per_step = args.ctx_len * args.real_bsz
+        token_per_step = pl_module.tokens_trained_this_step * args.devices
         real_step = trainer.global_step + args.epoch_begin * args.epoch_steps
 
         if pl.__version__[0]=='2' :

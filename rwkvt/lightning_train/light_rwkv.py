@@ -82,6 +82,7 @@ class RWKV(pl.LightningModule):
         super().__init__()
         self.args = args
         self.model = RWKVModel(args)
+        self.tokens_trained_this_step = 0
         if os.environ["FUSED_KERNEL"] == '1':
             from rwkvfla.modules import FusedCrossEntropyLoss
             self.criterion = FusedCrossEntropyLoss(inplace_backward=True)
@@ -246,7 +247,7 @@ class RWKV(pl.LightningModule):
                 idx, targets = batch
                 logits = self(idx)
             loss = self.criterion(logits.view(-1, logits.size(-1)), targets.view(-1))
-            
+            self.tokens_trained_this_step = idx.shape[0]*idx.shape[1]
             return L2Wrap.apply(loss, logits)
     
     
