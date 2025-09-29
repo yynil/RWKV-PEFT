@@ -237,9 +237,9 @@ class RWKV(pl.LightningModule):
                 max_batch_len = max_k_tokens_per_gpu * 1024 // per_sample_len
                 if current_bsz > max_batch_len:
                     print(f"Warning: current_bsz > max_batch_len, current_bsz: {current_bsz}, max_batch_len: {max_batch_len}")
-                    idx = idx[:, :max_batch_len]
-                    mask = mask[:, :max_batch_len]
-                    targets = targets[:, :max_batch_len]
+                    idx = idx[:max_batch_len,:].contiguous()
+                    mask = mask[:max_batch_len,:].contiguous()
+                    targets = targets[:max_batch_len,:].contiguous()
                 logits = self(idx, mask)            
                 
             else:
