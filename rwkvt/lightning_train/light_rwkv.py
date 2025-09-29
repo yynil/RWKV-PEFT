@@ -230,8 +230,15 @@ class RWKV(pl.LightningModule):
     else:
         def training_step(self, batch, batch_idx):
             args = self.args
+            max_k_tokens_per_gpu = args.max_k_tokens_per_gpu
             if args.data_type=='sft' or args.data_type=="jsonl_dir":
                 idx, targets, mask = batch
+                current_bsz,per_sample_len = idx.shape[1]
+                max_batch_len = max_k_tokens_per_gpu * 1024 // per_sample_len
+                if current_bsz > max_batch_len:
+                    idx = idx[:, :max_batch_len]
+                    mask = mask[:, :max_batch_len]
+                    targets = targets[:, :max_batch_len]
                 logits = self(idx, mask)            
                 
             else:

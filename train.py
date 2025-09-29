@@ -129,6 +129,7 @@ if __name__ == "__main__":
 
     parser.add_argument("--lr_schedule", default="cos", type=str)        #['cos', 'wsd']
     parser.add_argument("--save_per_steps", default=10000, type=int)
+    parser.add_argument("--max_k_tokens_per_gpu",type=int,default=6)
 
     if pl.__version__[0]=='2':
         parser.add_argument("--accelerator", default="gpu", type=str)
